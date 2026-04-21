@@ -458,6 +458,16 @@
     .packing-grid { grid-template-columns: 1fr 1fr; }
     .overview-cards { grid-template-columns: 1fr; }
   }
+
+  @media print {
+    .tabs-bar, .btn, .del-btn, .add-activity-btn, .map-controls, #map, .pack-rm, .pack-section button { display: none !important; }
+    .tab-panel { display: block !important; }
+    .day-body.collapsed { display: block !important; }
+    body { font-size: 12px; }
+    .cover { height: 80px; }
+    .section { margin-bottom: 20px; page-break-inside: avoid; }
+    .day-block { page-break-inside: avoid; border: 1px solid #ccc; }
+  }
 </style>
 </head>
 <body>
@@ -505,10 +515,17 @@
   <div class="tab-panel active" id="tab-overview">
     <div class="section">
       <div class="section-title"><span>📊</span> Trip Summary</div>
-      <div class="stats-row">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+        <button class="btn btn-sm" onclick="window.print()" style="display:flex;align-items:center;gap:6px;">🖨 Print / Export</button>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+        <div class="stat-card">
+          <div class="stat-val" id="ov-countdown">—</div>
+          <div class="stat-lbl">Days Until Trip</div>
+        </div>
         <div class="stat-card">
           <div class="stat-val" id="ov-days">—</div>
-          <div class="stat-lbl">Days</div>
+          <div class="stat-lbl">Trip Length</div>
         </div>
         <div class="stat-card">
           <div class="stat-val" id="ov-stops">0</div>
@@ -633,6 +650,9 @@
 
 </div>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ─── TAB SWITCHING ────────────────────────────────────────────────────────────
@@ -739,25 +759,24 @@ function renderStopChips() {
 let days = [];
 const typeColors = { stay:'type-stay', food:'type-food', travel:'type-travel', activity:'type-activity' };
 
-function getDayDate(di) {
-  const startVal = document.getElementById('startDate').value;
-  if (!startVal) return null;
-  const base = new Date(startVal + 'T00:00:00');
-  base.setDate(base.getDate() + di);
-  return base;
-}
-function formatDayDate(di) {
-  const d = getDayDate(di);
-  if (!d) return null;
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-}
-
 function addDay() {
-  const d = { title: '', activities: [
+  const d = { title: 'Day ' + (days.length+1) + ' — ', activities: [
     { time: '09:00', text: '', type: 'activity' }
   ], collapsed: false };
   days.push(d);
   renderDays();
+}
+
+function getDayDate(di) {
+  const startVal = document.getElementById('startDate').value;
+  if (!startVal) return '';
+  // Parse as local date to avoid timezone shifting
+  const [y, m, day] = startVal.split('-').map(Number);
+  const d = new Date(y, m - 1, day + di);
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
 }
 
 function renderDays() {
@@ -767,18 +786,14 @@ function renderDays() {
     return;
   }
   el.innerHTML = days.map((d, di) => {
-    const dateStr = formatDayDate(di);
+    const dateStr = getDayDate(di);
     return `
     <div class="day-block">
       <div class="day-header" onclick="toggleDay(${di})">
         <div class="day-header-left">
-          <span class="day-pill">Day ${di+1}</span>
-          <div style="display:flex;flex-direction:column;gap:2px;">
-            ${dateStr ? `<span style="font-size:13px;font-weight:500;color:var(--accent);pointer-events:none">${dateStr}</span>` : ''}
-            <input class="day-title-inp" value="${escHtml(d.title)}" onclick="event.stopPropagation()"
-              oninput="days[${di}].title=this.value;saveAll()" placeholder="Add a title… e.g. Arrive in Bishkek" spellcheck="false"
-              style="font-size:13px;color:var(--muted);">
-          </div>
+          <span class="day-pill">${dateStr ? dateStr + ' · ' : ''}Day ${di+1}</span>
+          <input class="day-title-inp" value="${escHtml(d.title)}" onclick="event.stopPropagation()"
+            oninput="days[${di}].title=this.value" placeholder="Title..." spellcheck="false">
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="font-size:13px;color:var(--muted)">${d.activities.length} item${d.activities.length!==1?'s':''}</span>
@@ -789,11 +804,11 @@ function renderDays() {
       <div class="day-body ${d.collapsed?'collapsed':''}">
         ${d.activities.map((a, ai) => `
           <div class="activity-row">
-            <input class="act-time" type="time" value="${a.time}" oninput="days[${di}].activities[${ai}].time=this.value;saveAll()"
+            <input class="act-time" type="time" value="${a.time}" oninput="days[${di}].activities[${ai}].time=this.value"
               style="border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--muted);outline:none;cursor:pointer">
-            <input class="act-inp" value="${escHtml(a.text)}" placeholder="Activity..." oninput="days[${di}].activities[${ai}].text=this.value;saveAll()" spellcheck="false">
+            <input class="act-inp" value="${escHtml(a.text)}" placeholder="Activity..." oninput="days[${di}].activities[${ai}].text=this.value" spellcheck="false">
             <select class="act-type ${typeColors[a.type]||''}" style="border:none;font-family:inherit;font-size:12px;font-weight:500;padding:2px 8px;border-radius:10px;cursor:pointer;outline:none;"
-              onchange="days[${di}].activities[${ai}].type=this.value;renderDays();saveAll()">
+              onchange="days[${di}].activities[${ai}].type=this.value;renderDays()">
               <option value="activity" ${a.type==='activity'?'selected':''}>Activity</option>
               <option value="food" ${a.type==='food'?'selected':''}>Food</option>
               <option value="stay" ${a.type==='stay'?'selected':''}>Stay</option>
@@ -806,9 +821,6 @@ function renderDays() {
     </div>`;
   }).join('');
 }
-
-// Re-render itinerary when start date changes so dates update live
-document.getElementById('startDate').addEventListener('change', () => { renderDays(); updateOverview(); saveAll(); });
 
 function toggleDay(i) { days[i].collapsed = !days[i].collapsed; renderDays(); }
 function removeDay(i) { days.splice(i, 1); renderDays(); }
@@ -952,7 +964,18 @@ function updateOverview() {
   const e = document.getElementById('endDate').value;
   if (s && e) {
     const diff = Math.round((new Date(e) - new Date(s)) / 86400000);
-    document.getElementById('ov-days').textContent = diff > 0 ? diff : '—';
+    document.getElementById('ov-days').textContent = diff > 0 ? diff + ' days' : '—';
+  }
+  // Countdown
+  if (s) {
+    const [y, m, d] = s.split('-').map(Number);
+    const start = new Date(y, m-1, d);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cdiff = Math.round((start - today) / 86400000);
+    const cdEl = document.getElementById('ov-countdown');
+    if (cdiff > 0) { cdEl.textContent = cdiff; cdEl.style.color = ''; }
+    else if (cdiff === 0) { cdEl.textContent = 'Today!'; cdEl.style.color = 'var(--green)'; }
+    else { cdEl.textContent = 'Ongoing'; cdEl.style.color = 'var(--accent)'; }
   }
   document.getElementById('ov-stops').textContent = stops.length;
   const ovStops = document.getElementById('overview-stops');
@@ -965,61 +988,119 @@ function updateOverview() {
   }
 }
 
-['startDate','endDate'].forEach(id => document.getElementById(id).addEventListener('change', () => { updateOverview(); saveAll(); }));
+['startDate','endDate'].forEach(id => document.getElementById(id).addEventListener('change', () => { updateOverview(); renderDays(); saveAll(); }));
 
-// ─── SAVE & LOAD (localStorage) ───────────────────────────────────────────────
-const SAVE_KEY = 'tripplanner_v1';
+// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
+// 👉 SETUP: Replace the values below with your own Firebase project config.
+//    Steps:
+//    1. Go to https://console.firebase.google.com and create a project
+//    2. Click "Add app" → Web (</>) and register the app
+//    3. Copy the firebaseConfig object values into the fields below
+//    4. In the Firebase console, go to Build → Realtime Database → Create database
+//       Choose "Start in test mode" (you can lock it down later)
+//    5. Copy the databaseURL (looks like https://YOUR-PROJECT-default-rtdb.firebaseio.com)
+//       and paste it as the databaseURL below
+//    6. Save this file and push to GitHub — everyone will now share the same data!
 
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyC1bSPRSfwTec_wTxhQWQ5u1hsMvKZHXEU",
+  authDomain:        "travel-plans-for2.firebaseapp.com",
+  databaseURL:       "https://travel-plans-for2-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "travel-plans-for2",
+  storageBucket:     "travel-plans-for2.firebasestorage.app",
+  messagingSenderId: "103826596144",
+  appId:             "1:103826596144:web:0050d824c6cfcf67d128f5",
+  measurementId:     "G-FWBDFK4JTC"
+};
+
+// ─── FIREBASE INIT ────────────────────────────────────────────────────────────
+const FB_CONFIGURED = !FIREBASE_CONFIG.apiKey.includes('PASTE');
+let db = null;
+let isRemoteUpdate = false; // prevents save loop when applying remote data
+
+if (FB_CONFIGURED) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db = firebase.database();
+  // Show live connection status
+  firebase.database().ref('.info/connected').on('value', snap => {
+    const dot = document.getElementById('sync-dot');
+    const lbl = document.getElementById('sync-lbl');
+    if (!dot) return;
+    if (snap.val()) {
+      dot.style.background = '#2d6a4f';
+      lbl.textContent = 'Live sync on';
+    } else {
+      dot.style.background = '#b83232';
+      lbl.textContent = 'Offline';
+    }
+  });
+} else {
+  // Show setup banner
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:#fff3cd;border-bottom:1px solid #ffc107;padding:10px 48px;font-size:13px;font-family:DM Sans,sans-serif;color:#856404;display:flex;align-items:center;gap:10px;';
+  banner.innerHTML = `⚠️ <strong>Firebase not configured yet.</strong> Open index.html and fill in your Firebase config to enable shared sync. Data is currently saved locally only. &nbsp;<a href="https://console.firebase.google.com" target="_blank" style="color:#856404;font-weight:600;">Open Firebase Console →</a>`;
+  document.body.insertBefore(banner, document.body.children[1]);
+}
+
+// ─── SAVE ─────────────────────────────────────────────────────────────────────
+let saveTimer;
 function saveAll() {
+  if (isRemoteUpdate) return; // don't echo remote changes back
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(_doSave, 600); // debounce 600ms
+}
+
+function _doSave() {
   const data = {
-    tripTitle: document.getElementById('tripTitle').value,
-    startDate: document.getElementById('startDate').value,
-    endDate: document.getElementById('endDate').value,
-    numPeople: document.getElementById('numPeople').value,
+    tripTitle:   document.getElementById('tripTitle').value,
+    startDate:   document.getElementById('startDate').value,
+    endDate:     document.getElementById('endDate').value,
+    numPeople:   document.getElementById('numPeople').value,
     totalBudget: document.getElementById('totalBudget').value,
-    origin: document.getElementById('origin').value,
-    tripDesc: document.getElementById('tripDesc').value,
-    mainNotes: document.getElementById('mainNotes').value,
-    stopsData: stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
-    days, expenses, packItems, links
+    origin:      document.getElementById('origin').value,
+    tripDesc:    document.getElementById('tripDesc').value,
+    mainNotes:   document.getElementById('mainNotes').value,
+    stopsData:   stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng })),
+    days, expenses, packItems, links,
+    _savedAt: Date.now()
   };
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e) {}
-  showSavedToast();
+  if (FB_CONFIGURED && db) {
+    setStatus('saving');
+    db.ref('trip').set(data)
+      .then(() => setStatus('saved'))
+      .catch(() => setStatus('error'));
+  } else {
+    try { localStorage.setItem('tripplanner_v1', JSON.stringify(data)); } catch(e) {}
+    setStatus('saved');
+  }
 }
 
-let toastTimer;
-function showSavedToast() {
-  let t = document.getElementById('saved-toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'saved-toast';
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#2d6a4f;color:#fff;padding:8px 18px;border-radius:20px;font-size:13px;font-family:DM Sans,sans-serif;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:9999';
-    t.textContent = '✓ Saved';
-    document.body.appendChild(t);
-  }
-  clearTimeout(toastTimer);
-  t.style.opacity = '1';
-  toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+// ─── STATUS ───────────────────────────────────────────────────────────────────
+let statusTimer;
+function setStatus(state) {
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-lbl');
+  if (!dot) return;
+  clearTimeout(statusTimer);
+  if (state === 'saving') { dot.style.background = '#d4820a'; lbl.textContent = 'Saving…'; }
+  else if (state === 'saved') { dot.style.background = '#2d6a4f'; lbl.textContent = '✓ Saved & synced'; statusTimer = setTimeout(() => { lbl.textContent = 'Live sync on'; }, 2000); }
+  else if (state === 'error') { dot.style.background = '#b83232'; lbl.textContent = 'Save error'; }
 }
 
-function loadAll() {
-  let data;
-  try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e) {}
-  if (!data) {
-    addDay(); renderBudget(); initPacking(); updateOverview();
-    return;
-  }
+// ─── LOAD FROM DATA OBJECT ────────────────────────────────────────────────────
+function applyData(data) {
+  if (!data) { addDay(); renderBudget(); initPacking(); updateOverview(); return; }
+  isRemoteUpdate = true;
   const set = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
-  set('tripTitle', data.tripTitle);
-  set('startDate', data.startDate);
-  set('endDate', data.endDate);
-  set('numPeople', data.numPeople);
+  set('tripTitle',   data.tripTitle);
+  set('startDate',   data.startDate);
+  set('endDate',     data.endDate);
+  set('numPeople',   data.numPeople);
   set('totalBudget', data.totalBudget);
-  set('origin', data.origin);
-  set('tripDesc', data.tripDesc);
-  set('mainNotes', data.mainNotes);
+  set('origin',      data.origin);
+  set('tripDesc',    data.tripDesc);
+  set('mainNotes',   data.mainNotes);
 
-  // Restore stops — map will be inited lazily; store raw data for when map opens
   window._pendingStops = data.stopsData || [];
 
   days = data.days || [];
@@ -1035,9 +1116,24 @@ function loadAll() {
   renderLinks();
 
   updateOverview();
+  isRemoteUpdate = false;
 }
 
-// Patch initMap to reload saved stops
+// ─── LOAD ─────────────────────────────────────────────────────────────────────
+function loadAll() {
+  if (FB_CONFIGURED && db) {
+    // Real-time listener — fires on load AND whenever any collaborator saves
+    db.ref('trip').on('value', snap => {
+      applyData(snap.val());
+    });
+  } else {
+    let data;
+    try { data = JSON.parse(localStorage.getItem('tripplanner_v1')); } catch(e) {}
+    applyData(data);
+  }
+}
+
+// ─── PATCH initMap to restore stops ──────────────────────────────────────────
 const _origInitMap = initMap;
 initMap = function() {
   _origInitMap();
@@ -1045,21 +1141,30 @@ initMap = function() {
   window._pendingStops = [];
 };
 
-// Auto-save on any input change
+// ─── AUTO-SAVE ON INPUT ───────────────────────────────────────────────────────
 document.addEventListener('input', saveAll);
 document.addEventListener('change', saveAll);
 
-// Clear data button
+// ─── CLEAR DATA ───────────────────────────────────────────────────────────────
 function clearAllData() {
-  if (!confirm('Clear all saved data and start fresh?')) return;
-  localStorage.removeItem(SAVE_KEY);
-  location.reload();
+  if (!confirm('Clear ALL shared trip data? This affects everyone.')) return;
+  if (FB_CONFIGURED && db) {
+    db.ref('trip').remove().then(() => location.reload());
+  } else {
+    localStorage.removeItem('tripplanner_v1');
+    location.reload();
+  }
 }
 
-// Add clear button to page
+// Add bottom-left controls
 const clearBtn = document.createElement('div');
-clearBtn.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:9999';
-clearBtn.innerHTML = `<button onclick="clearAllData()" style="background:transparent;border:1px solid #ccc;border-radius:20px;padding:6px 14px;font-size:12px;color:#999;cursor:pointer;font-family:DM Sans,sans-serif">🗑 Clear saved data</button>`;
+clearBtn.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;align-items:flex-start';
+clearBtn.innerHTML = `
+  <div id="sync-status" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.92);border:1px solid #e5e2da;border-radius:20px;padding:5px 12px;font-size:12px;font-family:DM Sans,sans-serif;color:#555;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
+    <span id="sync-dot" style="width:8px;height:8px;border-radius:50%;background:#ccc;display:inline-block"></span>
+    <span id="sync-lbl">${FB_CONFIGURED ? 'Connecting…' : 'Local only'}</span>
+  </div>
+  <button onclick="clearAllData()" style="background:transparent;border:1px solid #ccc;border-radius:20px;padding:6px 14px;font-size:12px;color:#999;cursor:pointer;font-family:DM Sans,sans-serif">🗑 Clear all data</button>`;
 document.body.appendChild(clearBtn);
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
